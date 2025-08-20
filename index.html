@@ -41,8 +41,8 @@
     <script>
         async function loadLink() {
             try {
-                // Replace 'OWNER' and 'REPO' with your actual GitHub username and repository name
-                const response = await fetch('https://raw.githubusercontent.com/OWNER/REPO/main/link.txt');
+                // Fetch the link from the repository
+                const response = await fetch('https://raw.githubusercontent.com/hokocodes/freezy-frenzy-site-with-link/main/link.txt');
                 if (!response.ok) {
                     throw new Error('Failed to load link');
                 }
