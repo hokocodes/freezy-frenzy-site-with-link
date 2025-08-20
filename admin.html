@@ -40,6 +40,8 @@
     <div class="container">
         <h2>Update GO Button Link</h2>
         <form id="update-form">
+            <input type="text" id="owner" class="form-control" placeholder="GitHub owner (e.g., username or org)" value="hokocodes" required>
+            <input type="text" id="repo" class="form-control" placeholder="Repository name" value="freezy-frenzy-site-with-link" required>
             <input type="url" id="new-link" class="form-control" placeholder="Enter new link (e.g., https://example.com)" required>
             <input type="password" id="pin" class="form-control" placeholder="Enter PIN (GitHub Personal Access Token)" required>
             <button type="submit" class="btn btn-primary">Submit</button>
@@ -47,34 +49,65 @@
     </div>
 
     <script>
-        const owner = 'hokocodes'; // Replace with your GitHub username
-        const repo = 'freezy-frenzy-site-with-link'; // Replace with your GitHub repository name
         const path = 'link.txt';
 
-        async function updateLink(newLink, token) {
-            let sha = null;
+        function safeBase64Encode(text) {
             try {
-                const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+                return btoa(text);
+            } catch (e) {
+                return btoa(unescape(encodeURIComponent(text)));
+            }
+        }
+
+        async function getDefaultBranch(token, owner, repo) {
+            const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github+json'
+                }
+            });
+            if (!res.ok) {
+                let message = res.statusText;
+                try {
+                    const json = await res.json();
+                    message = json.message || message;
+                } catch {}
+                if (res.status === 404) {
+                    throw new Error('Repository not found or you do not have access. Check owner/repo and token permissions.');
+                }
+                throw new Error(`Failed to read repository info (${res.status}): ${message}`);
+            }
+            const info = await res.json();
+            return info.default_branch || 'main';
+        }
+
+        async function updateLink(newLink, token, owner, repo) {
+            let sha = null;
+            let branch = 'main';
+            try {
+                branch = await getDefaultBranch(token, owner, repo);
+                const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`, {
                     headers: {
-                        'Authorization': `token ${token}`,
-                        'Accept': 'application/vnd.github.v3+json'
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/vnd.github+json'
                     }
                 });
                 if (getRes.ok) {
                     const data = await getRes.json();
                     sha = data.sha;
                 } else if (getRes.status !== 404) {
-                    throw new Error(`Error fetching current file: ${getRes.statusText}`);
+                    throw new Error(`Error fetching current file: ${getRes.status} ${getRes.statusText}`);
                 }
             } catch (error) {
                 alert(`Error: ${error.message}`);
                 return;
             }
 
-            const content = btoa(newLink.trim());
+            const content = safeBase64Encode(newLink.trim());
             const body = {
                 message: 'Update link.txt via admin page',
-                content: content
+                content: content,
+                branch: branch
             };
             if (sha) {
                 body.sha = sha;
@@ -84,8 +117,8 @@
                 const updateRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
                     method: 'PUT',
                     headers: {
-                        'Authorization': `token ${token}`,
-                        'Accept': 'application/vnd.github.v3+json',
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/vnd.github+json',
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(body)
@@ -93,8 +126,13 @@
                 if (updateRes.ok) {
                     alert('Link updated successfully!');
                 } else {
-                    const errorData = await updateRes.json();
-                    alert(`Error updating link: ${errorData.message || updateRes.statusText}`);
+                    const text = await updateRes.text();
+                    let message = updateRes.statusText;
+                    try {
+                        const json = JSON.parse(text);
+                        message = json.message || message;
+                    } catch {}
+                    alert(`Error updating link (${updateRes.status}): ${message}`);
                 }
             } catch (error) {
                 alert(`Error: ${error.message}`);
@@ -105,8 +143,10 @@
             e.preventDefault();
             const newLink = document.getElementById('new-link').value;
             const token = document.getElementById('pin').value;
-            if (newLink && token) {
-                updateLink(newLink, token);
+            const owner = document.getElementById('owner').value.trim();
+            const repo = document.getElementById('repo').value.trim();
+            if (newLink && token && owner && repo) {
+                updateLink(newLink, token, owner, repo);
             } else {
                 alert('Please fill in both fields.');
             }
